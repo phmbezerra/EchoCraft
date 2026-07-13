@@ -1,0 +1,36 @@
+# IntelliJ IDEA
+.idea/
+*.iml
+out/
+
+# Gradle
+.gradle/
+build/
+
+# Arquivos compilados
+*.class
+*.jar
+
+# Banco e dados privados do plugin
+*.db
+*.db-shm
+*.db-wal
+backups/
+logs/
+
+# Servidor de testes
+server/
+run/
+plugins/
+world/
+world_nether/
+world_the_end/
+eula.txt
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# Arquivos temporários
+*.tmp
+*.log

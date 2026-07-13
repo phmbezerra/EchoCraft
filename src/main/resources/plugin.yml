@@ -1,0 +1,60 @@
+name: EchoCraft
+version: 1.5.1
+main: me.paulohenrique.echocraft.EchoCraftPlugin
+api-version: '1.21.11'
+author: Paulo Henrique
+description: Um sistema capaz de revelar as memorias temporais do mundo.
+
+commands:
+  echo:
+    description: Revela a fotografia temporal mais recente da região.
+    usage: /echo
+    permission: echocraft.echo
+
+  echolens:
+    description: Entrega a lente capaz de visualizar memorias temporais.
+    usage: /echolens
+    permission: echocraft.lens
+
+  echoname:
+    description: Renomeia uma memória temporal
+    usage: /echoname <id> <nome>
+
+  echolist:
+    description: Lista memórias temporais próximas
+    usage: /echolist
+
+  echoinfo:
+    description: Mostra detalhes de uma memória temporal
+    usage: /echoinfo <id>
+
+  echodelete:
+    description: Apaga uma memória temporal
+    usage: /echodelete <id> [confirm]
+
+  echorestore:
+    description: Restaura fisicamente uma memória temporal
+    usage: /echorestore <id> [confirm]
+    permission: echocraft.restore
+
+  echotimeline:
+    description: Mostra a linha do tempo de uma construção
+    usage: /echotimeline <id> [pagina]
+
+  echotimelinename:
+    description: Renomeia uma linha temporal inteira
+    usage: /echotimelinename <id-da-memoria> <nome>
+
+permissions:
+  echocraft.echo:
+    description: Permite utilizar o visor temporal.
+    default: op
+
+  echocraft.lens:
+    description: Permite receber e utilizar a EchoLens.
+    default: op
+
+  permissions:
+    echocraft.restore:
+      description: Permite materializar memórias temporais
+      default: op
