@@ -1,0 +1,5 @@
+echopanel:
+  enabled: true
+  url: "http://echopanel.test/api/servers/heartbeat"
+  token: ""
+  interval-seconds: 30

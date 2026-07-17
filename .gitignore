@@ -1,36 +1,88 @@
+# ==============================
+# EchoCraft — Java / Paper / Gradle
+# ==============================
+
 # IntelliJ IDEA
 .idea/
 *.iml
+*.ipr
+*.iws
 out/
+
+# VS Code / Eclipse
+.vscode/
+.classpath
+.project
+.settings/
+bin/
 
 # Gradle
 .gradle/
 build/
+!gradle/wrapper/gradle-wrapper.jar
 
-# Arquivos compilados
+# Arquivos compilados e pacotes locais
 *.class
 *.jar
+!gradle/wrapper/gradle-wrapper.jar
+target/
+libs/
 
-# Banco e dados privados do plugin
+# Bancos e dados privados gerados pelo plugin
 *.db
 *.db-shm
 *.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 backups/
 logs/
 
-# Servidor de testes
+# Configurações locais ou com segredos
+config.local.yml
+config.secret.yml
+*.secret.yml
+*.local.yml
+.env
+.env.*
+
+# Servidor Minecraft usado em testes locais
 server/
 run/
 plugins/
+cache/
+libraries/
+versions/
 world/
 world_nether/
 world_the_end/
 eula.txt
+server.properties
+bukkit.yml
+spigot.yml
+paper*.yml
+commands.yml
+permissions.yml
+ops.json
+whitelist.json
+banned-*.json
+usercache.json
+session.lock
+*.mca
+
+# Logs e relatórios de falha da JVM
+*.log
+hs_err_pid*
+replay_pid*
 
 # Sistema operacional
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Arquivos temporários
+# Temporários
 *.tmp
-*.log
+*.temp
+*.bak
+*.swp
+*~

@@ -54,7 +54,6 @@ permissions:
     description: Permite receber e utilizar a EchoLens.
     default: op
 
-  permissions:
-    echocraft.restore:
-      description: Permite materializar memórias temporais
-      default: op
+  echocraft.restore:
+    description: Permite materializar memórias temporais.
+    default: op

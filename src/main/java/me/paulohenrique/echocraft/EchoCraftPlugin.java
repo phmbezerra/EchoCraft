@@ -36,6 +36,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import java.sql.SQLException;
@@ -50,6 +51,8 @@ public final class EchoCraftPlugin extends JavaPlugin {
     private DatabaseManager databaseManager;
 
     private NamespacedKey echoLensKey;
+
+    private EchoPanelClient echoPanelClient;
 
     private static final double SNAPSHOT_SEARCH_RADIUS = 40.0;
 
@@ -618,12 +621,18 @@ public final class EchoCraftPlugin extends JavaPlugin {
                             + "encontrado no plugin.yml."
             );
         }
+        saveDefaultConfig();
+
+        echoPanelClient = new EchoPanelClient(this);
+        echoPanelClient.start();
     }
-
-
 
     @Override
     public void onDisable() {
+        if (echoPanelClient != null) {
+            echoPanelClient.stop();
+        }
+
         shuttingDown = true;
 
         for (BukkitTask task : activeRestoreTasks.values()) {
@@ -1091,6 +1100,23 @@ public final class EchoCraftPlugin extends JavaPlugin {
                         + " acoes. Motivo: "
                         + cause
         );
+
+        if (echoPanelClient != null) {
+            echoPanelClient.sendTimelineSnapshot(
+                    snapshot.center(),
+                    snapshot.id(),
+                    snapshot.timelineId(),
+                    snapshot.versionNumber(),
+                    snapshot.timelineName(),
+                    getSnapshotTitle(snapshot),
+                    snapshot.type().name(),
+                    snapshot.cause(),
+                    snapshot.blocks().size(),
+                    snapshot.traces().size(),
+                    snapshot.actions().size(),
+                    snapshot.createdAt()
+            );
+        }
 
         return snapshot;
     }
@@ -3013,6 +3039,138 @@ public final class EchoCraftPlugin extends JavaPlugin {
         return null;
     }
 
+    public void handlePanelCommand(
+            long commandId,
+            String commandType,
+            long snapshotId
+    ) {
+        if (!"restore_snapshot".equals(
+                commandType
+        )) {
+            if (echoPanelClient != null) {
+                echoPanelClient.completeCommand(
+                        commandId,
+                        false,
+                        "Tipo de comando nao suportado: "
+                                + commandType,
+                        0,
+                        0
+                );
+            }
+            return;
+        }
+
+        restoreEchoMemoryFromPanel(
+                commandId,
+                snapshotId
+        );
+    }
+
+    private void restoreEchoMemoryFromPanel(
+            long commandId,
+            long snapshotId
+    ) {
+        removeExpiredSnapshots();
+
+        TemporalSnapshot snapshot =
+                findSnapshotById(snapshotId);
+
+        if (snapshot == null) {
+            completePanelRestore(
+                    commandId,
+                    false,
+                    "Memoria #"
+                            + snapshotId
+                            + " nao encontrada no servidor.",
+                    0,
+                    0
+            );
+            return;
+        }
+
+        if (activeRestoreTimelines.contains(
+                snapshot.timelineId()
+        )) {
+            completePanelRestore(
+                    commandId,
+                    false,
+                    "A linha temporal #"
+                            + snapshot.timelineId()
+                            + " ja esta sendo restaurada.",
+                    0,
+                    0
+            );
+            return;
+        }
+
+        World snapshotWorld =
+                snapshot.center().getWorld();
+
+        if (snapshotWorld == null) {
+            completePanelRestore(
+                    commandId,
+                    false,
+                    "O mundo da memoria #"
+                            + snapshotId
+                            + " nao esta disponivel.",
+                    0,
+                    0
+            );
+            return;
+        }
+
+        List<BlockMemory> changedBlocks =
+                findMissingBlocks(snapshot);
+
+        if (changedBlocks.isEmpty()) {
+            completePanelRestore(
+                    commandId,
+                    true,
+                    "A construcao ja estava igual a memoria #"
+                            + snapshotId
+                            + ".",
+                    0,
+                    0
+            );
+            return;
+        }
+
+        getLogger().info(
+                "EchoPanel solicitou a restauracao da memoria #"
+                        + snapshotId
+                        + " com "
+                        + changedBlocks.size()
+                        + " bloco(s)."
+        );
+
+        beginTemporalRestore(
+                null,
+                commandId,
+                snapshot,
+                List.copyOf(changedBlocks)
+        );
+    }
+
+    private void completePanelRestore(
+            long commandId,
+            boolean successful,
+            String message,
+            int restoredBlocks,
+            int failures
+    ) {
+        if (echoPanelClient == null) {
+            return;
+        }
+
+        echoPanelClient.completeCommand(
+                commandId,
+                successful,
+                message,
+                restoredBlocks,
+                failures
+        );
+    }
+
     private void restoreEchoMemory(
             Player player,
             long snapshotId,
@@ -3174,6 +3332,7 @@ public final class EchoCraftPlugin extends JavaPlugin {
 
         beginTemporalRestore(
                 player,
+                null,
                 snapshot,
                 List.copyOf(changedBlocks)
         );
@@ -3181,16 +3340,31 @@ public final class EchoCraftPlugin extends JavaPlugin {
 
     private void beginTemporalRestore(
             Player player,
+            Long panelCommandId,
             TemporalSnapshot snapshot,
             List<BlockMemory> changedBlocks
     ) {
         long timelineId = snapshot.timelineId();
 
         if (!activeRestoreTimelines.add(timelineId)) {
-            player.sendMessage(
-                    "§c[EchoCraft] Essa linha temporal já está "
-                            + "sendo restaurada."
-            );
+            if (player != null) {
+                player.sendMessage(
+                        "§c[EchoCraft] Essa linha temporal já está "
+                                + "sendo restaurada."
+                );
+            }
+
+            if (panelCommandId != null) {
+                completePanelRestore(
+                        panelCommandId,
+                        false,
+                        "A linha temporal #"
+                                + timelineId
+                                + " ja esta sendo restaurada.",
+                        0,
+                        0
+                );
+            }
             return;
         }
 
@@ -3203,26 +3377,28 @@ public final class EchoCraftPlugin extends JavaPlugin {
                 "Blocos solicitados: " + changedBlocks.size()
         );
 
-        player.sendTitle(
-                "§d§lREESCREVENDO O TEMPO",
-                "§f" + getSnapshotTitle(snapshot),
-                10,
-                40,
-                10
-        );
+        if (player != null) {
+            player.sendTitle(
+                    "§d§lREESCREVENDO O TEMPO",
+                    "§f" + getSnapshotTitle(snapshot),
+                    10,
+                    40,
+                    10
+            );
 
-        player.sendMessage(
-                "§5[EchoCraft] §7Restauração iniciada: §d"
-                        + changedBlocks.size()
-                        + " blocos§7."
-        );
+            player.sendMessage(
+                    "§5[EchoCraft] §7Restauração iniciada: §d"
+                            + changedBlocks.size()
+                            + " blocos§7."
+            );
 
-        player.playSound(
-                player.getLocation(),
-                Sound.BLOCK_RESPAWN_ANCHOR_CHARGE,
-                1.2F,
-                0.55F
-        );
+            player.playSound(
+                    player.getLocation(),
+                    Sound.BLOCK_RESPAWN_ANCHOR_CHARGE,
+                    1.2F,
+                    0.55F
+            );
+        }
 
         spawnCinemaPulse(
                 snapshot.center()
@@ -3249,6 +3425,17 @@ public final class EchoCraftPlugin extends JavaPlugin {
 
                             cancel();
                             releaseRestoreLock(timelineId);
+
+                            if (panelCommandId != null) {
+                                completePanelRestore(
+                                        panelCommandId,
+                                        false,
+                                        "O servidor foi desligado durante "
+                                                + "a restauracao.",
+                                        successfullyRestored.size(),
+                                        failedBlocks
+                                );
+                            }
                             return;
                         }
 
@@ -3284,6 +3471,7 @@ public final class EchoCraftPlugin extends JavaPlugin {
                                     EchoCraftPlugin.this,
                                     () -> finalizeTemporalRestore(
                                             player,
+                                            panelCommandId,
                                             snapshot,
                                             List.copyOf(
                                                     successfullyRestored
@@ -3312,10 +3500,23 @@ public final class EchoCraftPlugin extends JavaPlugin {
                                     exception.getClass().getSimpleName()
                             );
 
-                            if (player.isOnline()) {
+                            if (player != null
+                                    && player.isOnline()) {
                                 player.sendMessage(
                                         "§c[EchoCraft] A restauração foi "
                                                 + "interrompida com segurança."
+                                );
+                            }
+
+                            if (panelCommandId != null) {
+                                completePanelRestore(
+                                        panelCommandId,
+                                        false,
+                                        "A restauracao da memoria #"
+                                                + snapshot.id()
+                                                + " foi interrompida.",
+                                        successfullyRestored.size(),
+                                        failedBlocks
                                 );
                             }
                         }
@@ -3369,6 +3570,7 @@ public final class EchoCraftPlugin extends JavaPlugin {
 
     private void finalizeTemporalRestore(
             Player player,
+            Long panelCommandId,
             TemporalSnapshot snapshot,
             List<BlockMemory> restoredBlocks,
             int previousFailures
@@ -3452,7 +3654,8 @@ public final class EchoCraftPlugin extends JavaPlugin {
                         exception
                 );
 
-                if (player.isOnline()) {
+                if (player != null
+                        && player.isOnline()) {
                     player.sendMessage(
                             "§c[EchoCraft] A estrutura voltou, mas houve "
                                     + "um erro ao atualizar o banco."
@@ -3491,7 +3694,8 @@ public final class EchoCraftPlugin extends JavaPlugin {
             int totalFailures =
                     previousFailures + finalPassFailures;
 
-            if (player.isOnline()) {
+            if (player != null
+                    && player.isOnline()) {
                 player.sendTitle(
                         "§b§lLINHA TEMPORAL RESTAURADA",
                         "§f"
@@ -3545,6 +3749,7 @@ public final class EchoCraftPlugin extends JavaPlugin {
                     );
 
             if (restoredVersion != null
+                    && player != null
                     && player.isOnline()) {
 
                 player.sendMessage(
@@ -3566,6 +3771,49 @@ public final class EchoCraftPlugin extends JavaPlugin {
                             + totalFailures
             );
 
+            if (echoPanelClient != null
+                    && !finalizedBlocks.isEmpty()) {
+
+                echoPanelClient.sendBlockReconstruction(
+                        player,
+                        snapshot.center(),
+                        finalizedBlocks.size(),
+                        snapshot.id(),
+                        snapshot.timelineId(),
+                        snapshot.versionNumber(),
+                        snapshot.timelineName(),
+                        getSnapshotTitle(snapshot),
+                        snapshot.type().name(),
+                        snapshot.blocks().size(),
+                        snapshot.traces().size(),
+                        snapshot.actions().size(),
+                        snapshot.cause()
+                );
+
+                sendSnapshotPlayerTracesToEchoPanel(
+                        snapshot
+                );
+            }
+
+            if (panelCommandId != null) {
+                boolean successful =
+                        !finalizedBlocks.isEmpty();
+
+                completePanelRestore(
+                        panelCommandId,
+                        successful,
+                        successful
+                                ? "Memoria #"
+                                + snapshot.id()
+                                + " restaurada pelo EchoPanel."
+                                : "Nenhum bloco da memoria #"
+                                + snapshot.id()
+                                + " pode ser restaurado.",
+                        finalizedBlocks.size(),
+                        totalFailures
+                );
+            }
+
         } catch (RuntimeException exception) {
             getLogger().log(
                     Level.SEVERE,
@@ -3582,10 +3830,24 @@ public final class EchoCraftPlugin extends JavaPlugin {
                             + exception.getClass().getSimpleName()
             );
 
-            if (player.isOnline()) {
+            if (player != null
+                    && player.isOnline()) {
                 player.sendMessage(
                         "§c[EchoCraft] A restauração terminou "
                                 + "com uma falha de finalização."
+                );
+            }
+
+            if (panelCommandId != null) {
+                completePanelRestore(
+                        panelCommandId,
+                        false,
+                        "Falha ao finalizar a restauracao da memoria #"
+                                + snapshot.id()
+                                + ": "
+                                + exception.getClass().getSimpleName(),
+                        0,
+                        previousFailures
                 );
             }
 
@@ -3593,6 +3855,73 @@ public final class EchoCraftPlugin extends JavaPlugin {
             releaseRestoreLock(timelineId);
         }
     }
+
+
+    private void sendSnapshotPlayerTracesToEchoPanel(
+            TemporalSnapshot snapshot
+    ) {
+        if (echoPanelClient == null
+                || snapshot.traces().isEmpty()) {
+            return;
+        }
+
+        Map<UUID, List<PlayerTrace>> tracesByPlayer =
+                new LinkedHashMap<>();
+
+        for (PlayerTrace trace : snapshot.traces()) {
+            tracesByPlayer
+                    .computeIfAbsent(
+                            trace.playerId(),
+                            ignored -> new ArrayList<>()
+                    )
+                    .add(trace);
+        }
+
+        for (Map.Entry<UUID, List<PlayerTrace>> entry :
+                tracesByPlayer.entrySet()) {
+
+            List<PlayerTrace> traces =
+                    entry.getValue();
+
+            if (traces.isEmpty()) {
+                continue;
+            }
+
+            PlayerTrace lastTrace =
+                    traces.get(traces.size() - 1);
+
+            int actionsCount = 0;
+
+            for (PlayerAction action : snapshot.actions()) {
+                if (!action.playerId().equals(
+                        entry.getKey()
+                )) {
+                    continue;
+                }
+
+                actionsCount++;
+            }
+
+            echoPanelClient.sendPlayerTrace(
+                    entry.getKey(),
+                    lastTrace.playerName(),
+                    lastTrace.location(),
+                    traces.size(),
+                    actionsCount,
+                    snapshot.id(),
+                    snapshot.timelineId(),
+                    snapshot.versionNumber(),
+                    snapshot.timelineName(),
+                    getSnapshotTitle(snapshot),
+                    snapshot.type().name(),
+                    snapshot.blocks().size(),
+                    snapshot.traces().size(),
+                    snapshot.actions().size(),
+                    snapshot.cause()
+            );
+        }
+    }
+
 
     private void releaseRestoreLock(
             long timelineId
@@ -5847,7 +6176,8 @@ public final class EchoCraftPlugin extends JavaPlugin {
                      * Quando o eco termina, mostramos novamente
                      * o estado verdadeiro e atual do bloco.
                      */
-                    if (player.isOnline()) {
+                    if (player != null
+                    && player.isOnline()) {
                         Block currentBlock = world.getBlockAt(
                                 location.getBlockX(),
                                 location.getBlockY(),
